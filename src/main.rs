@@ -124,7 +124,7 @@ impl CKBProtocolHandler for MonitorHandler {
             .peers
             .read()
             .iter()
-            .map(|(_peer, state)| state.latency)
+            .map(|(peer, state)| (peer.value(), state.latency))
             .collect();
         latencies.sort();
         info!("latencies: {:?}", latencies);
