@@ -9,7 +9,6 @@ use ckb_sync::NetworkProtocol;
 use ckb_types::packed::Byte32;
 use ckb_types::{packed, prelude::*};
 use ckb_util::{Condvar, Mutex, RwLock};
-use faketime::unix_time_as_millis;
 use rasciigraph::{plot, Config as GraphConfig};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -19,7 +18,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub const PRINT_LATENCY_INTERVAL: Duration = Duration::from_secs(10);
 pub const PRINT_LATENCY_TOKEN: u64 = 11111;
@@ -31,8 +30,8 @@ struct Config {
 }
 
 struct PeerState {
-    in_flight_blocks: HashMap<Byte32, u64>, // block_hash => timestamp
-    latency: u64,                           // ms
+    in_flight_blocks: HashMap<Byte32, Instant>, // block_hash => timestamp
+    latency: u128,                              // ms
 }
 
 struct MonitorHandler {
@@ -43,7 +42,7 @@ impl Default for PeerState {
     fn default() -> Self {
         Self {
             in_flight_blocks: Default::default(),
-            latency: u64::max_value(),
+            latency: u128::max_value(),
         }
     }
 }
@@ -146,8 +145,8 @@ impl MonitorHandler {
             packed::SyncMessageUnion::SendBlock(block) => {
                 let block_hash = block.block().header().into_view().hash();
                 if let Some(timestamp) = state.in_flight_blocks.remove(&block_hash) {
-                    let latency = unix_time_as_millis() - timestamp;
-                    state.latency = latency;
+                    let latency = Instant::now() - timestamp;
+                    state.latency = latency.as_millis();
                 }
             }
             _ => {}
@@ -210,9 +209,7 @@ impl MonitorHandler {
 
         let mut peers = self.peers.write();
         let state = peers.get_mut(&peer).expect("connected peer exist");
-        state
-            .in_flight_blocks
-            .insert(block_hash, unix_time_as_millis());
+        state.in_flight_blocks.insert(block_hash, Instant::now());
     }
 }
 
