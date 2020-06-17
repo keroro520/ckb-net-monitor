@@ -125,6 +125,7 @@ impl CKBProtocolHandler for MonitorHandler {
         assert_eq!(token, PRINT_LATENCY_TOKEN);
 
         let mut peers = self.peers.write();
+        let mut outputs = HashMap::new();
         for (peer_index, state) in peers.iter_mut() {
             let mut latencies = HashMap::<u64, u64>::new();
             let headers = &state.headers;
@@ -139,12 +140,9 @@ impl CKBProtocolHandler for MonitorHandler {
 
             let mut latencies = latencies.into_iter().collect::<Vec<_>>();
             latencies.sort_by_key(|(number, _latency)| *number);
-            info!(
-                "Peer({}): {:?}",
-                peer_index,
-                latencies
-            );
+            outputs.insert(peer_index.value(), latencies);
         }
+        info!("laatency: {:?}", outputs);
 
         for (peer_index, state) in peers.iter_mut() {
             state.arrived_blocks.clear();
@@ -161,11 +159,13 @@ impl CKBProtocolHandler for MonitorHandler {
                 });
             }
 
-            let hashes = state
+            let mut hashes = state
                 .headers
                 .iter()
-                .map(|(_, header)| header.hash())
+                .map(|(_, header)| (header.number(), header.hash()))
                 .collect::<Vec<_>>();
+            hashes.sort_by_key(|h| h.0);
+            let hashes = hashes.into_iter().map(|(_, hash)| hash).collect();
             self.send_getblocks(&nc, *peer_index, hashes);
             let now = unix_time_as_millis();
             for (block_hash, _) in state.headers.iter() {
@@ -184,7 +184,11 @@ impl MonitorHandler {
         message: packed::SyncMessageUnion,
     ) {
         let mut peers = self.peers.write();
-        let state = peers.get_mut(&peer_index).expect("connected peer exist");
+        let state = if let Some(state) = peers.get_mut(&peer_index) {
+            state
+        } else {
+            return;
+        };
 
         match message {
             packed::SyncMessageUnion::SendBlock(block) => {
@@ -222,7 +226,11 @@ impl MonitorHandler {
 
                 // We want to collect the latency between peers.
                 let mut peers = self.peers.write();
-                let state = peers.get_mut(&peer_index).expect("connected peer exist");
+                let state = if let Some(state) = peers.get_mut(&peer_index) {
+                    state
+                } else {
+                    return;
+                };
                 state.headers.insert(block_hash, header);
             }
             packed::RelayMessageUnion::RelayTransactionHashes(relay_transaction_hashes) => {
